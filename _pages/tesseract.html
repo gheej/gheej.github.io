@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tesseract Rotation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; font-family: Arial; }
+        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; }
+        canvas { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <label>Vector u: <input type="text" id="uInput" value="0 0 1 0"></label><br>
+        <label>Vector v: <input type="text" id="vInput" value="0 0 0 1"></label><br>
+        <label>Angle: <input type="range" id="angleSlider" min="0" max="6.28" step="0.01" value="0"></label>
+    </div>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        camera.position.z = 5;
+
+        // Add OrbitControls for mouse dragging
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Smooth dragging
+        controls.dampingFactor = 0.05;
+        controls.rotateSpeed = 1.0;
+
+        // Tesseract vertices (16 combinations of ±1)
+        const coords = [-1, 1];
+        const vertices4d = [];
+        for (let x of coords) for (let y of coords) for (let z of coords) for (let w of coords) {
+            vertices4d.push([x, y, z, w]);
+        }
+
+        // Edges (differ by one coordinate)
+        const edges = [];
+        for (let i = 0; i < vertices4d.length; i++) {
+            for (let j = i + 1; j < vertices4d.length; j++) {
+                if (vertices4d[i].reduce((sum, val, idx) => sum + Math.abs(val - vertices4d[j][idx]), 0) === 2) {
+                    edges.push([i, j]);
+                }
+            }
+        }
+
+        // Helper functions
+        function dot(v1, v2) { return v1.reduce((sum, val, i) => sum + val * v2[i], 0); }
+        function subtract(v1, v2) { return v1.map((val, i) => val - v2[i]); }
+        function scale(v, s) { return v.map(val => val * s); }
+        function norm(v) { return Math.sqrt(dot(v, v)); }
+        function normalize(v) { return scale(v, 1 / norm(v)); }
+
+        // Rotation matrix
+        function rotation4dMatrix(angle, u, v) {
+            const e1 = normalize(u);
+            const vProj = subtract(v, scale(e1, dot(v, e1)));
+            const e2 = normalize(vProj);
+            const cosA = Math.cos(angle), sinA = Math.sin(angle);
+            const matrix = Array(4).fill().map(() => Array(4).fill(0));
+            for (let i = 0; i < 4; i++) matrix[i][i] = 1; // Identity base
+            for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+                matrix[i][j] += (cosA - 1) * (e1[i] * e1[j] + e2[i] * e2[j]) + sinA * (e1[i] * e2[j] - e2[i] * e1[j]);
+            }
+            return matrix;
+        }
+
+        // 4D to 3D projection
+        function project4dTo3d(vertices4d, viewpoint = [0, 0, 0, 5]) {
+            const vertices3d = [];
+            for (let v of vertices4d) {
+                const dir = subtract(v, viewpoint);
+                const t = -viewpoint[3] / dir[3];
+                const proj = viewpoint.map((val, i) => val + t * dir[i]);
+                vertices3d.push(proj.slice(0, 3));
+            }
+            return vertices3d;
+        }
+
+        // Render tesseract
+        let geometry = new THREE.BufferGeometry();
+        let lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xff0000 }));
+        scene.add(lines);
+
+        function updateTesseract() {
+            // Parse inputs with spaces instead of commas
+            const u = document.getElementById('uInput').value.trim().split(/\s+/).map(Number);
+            const v = document.getElementById('vInput').value.trim().split(/\s+/).map(Number);
+            const angle = parseFloat(document.getElementById('angleSlider').value);
+
+            // Basic validation
+            if (u.length !== 4 || v.length !== 4 || u.some(isNaN) || v.some(isNaN)) {
+                console.error("Invalid input: u and v must be 4 numbers separated by spaces");
+                return;
+            }
+
+            const rotMatrix = rotation4dMatrix(angle, u, v);
+            const rotated4d = vertices4d.map(v => {
+                return rotMatrix.map(row => dot(row, v));
+            });
+            const vertices3d = project4dTo3d(rotated4d);
+            const positions = [];
+            for (let [i, j] of edges) {
+                positions.push(...vertices3d[i], ...vertices3d[j]);
+            }
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        }
+
+        // Event listeners
+        document.getElementById('uInput').addEventListener('input', updateTesseract);
+        document.getElementById('vInput').addEventListener('input', updateTesseract);
+        document.getElementById('angleSlider').addEventListener('input', updateTesseract);
+
+        // Animation loop (no continuous rotation, just rendering and controls)
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // Update OrbitControls
+            renderer.render(scene, camera);
+        }
+        updateTesseract();
+        animate();
+    </script>
+</body>
+</html>
