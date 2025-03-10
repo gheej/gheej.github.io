@@ -72,9 +72,35 @@
             background: #fff;
             color: #333;
         }
+	#infoPanel {
+            display: none;
+            position: absolute;
+            top: 60px;
+            right: 20px;
+            width: 300px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            font-size: 14px;
+            line-height: 1.5;
+            z-index: 10;
+        }
+        #closeInfo {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            color: white;
+        }
+        #closeInfo:hover {
+            color: #ff4d4d;
+        }
     </style>
 </head>
-<body class="night">
+<body class="day">
     <div id="controls">
         <label>Preset Planes:
             <select id="presetSelect">
@@ -95,12 +121,25 @@
         <button id="pauseBtn">Pause</button>
         <button id="randomBtn">Random</button>
         <button id="modeBtn">Day Mode</button>
+	<button id="infoBtn">What is going on</button>
+
+    </div>
+    <div id="infoPanel">
+        <span id="closeInfo">&times;</span>
+        <p>This visualization represents the projection of a four-dimensional hypercube (tesseract) into three dimensions. The algorithm works as follows:</p>
+        <ol>
+            <li><b>Four-Dimensional Representation:</b> The tesseract is defined in ℝ⁴ with vertices at all points (±1, ±1, ±1, ±1).</li>
+            <li><b>Rotation in Four Dimensions:</b> The animation rotates the tesseract around a plane spanned by two user-defined orthonormal vectors u, v.</li>
+            <li><b>Projection to Three Dimensions:</b> The rotated tesseract is projected into ℝ³ using a central projection.</li>
+            <li><b>Rendering with WebGL:</b> The projected 3D vertices are used to draw the edges of the tesseract using Three.js.</li>
+        </ol>
     </div>
     <script>
         // Scene setup
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer();
+	renderer.setClearColor(0xffffff, 1); // White background, fully opaque
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
         camera.position.z = 5;
@@ -169,7 +208,7 @@
 
         // Render tesseract
         let geometry = new THREE.BufferGeometry();
-        let material = new THREE.LineBasicMaterial({ color: 0xf5cd79 }); // Night mode default
+        let material = new THREE.LineBasicMaterial({ color: 0xea8685 }); // Night mode default
         let lines = new THREE.LineSegments(geometry, material);
         scene.add(lines);
 
@@ -265,8 +304,25 @@
 
         document.getElementById('randomBtn').addEventListener('click', setRandomVectors);
 
+	document.getElementById('infoBtn').addEventListener('click', function () {
+            let panel = document.getElementById('infoPanel');
+            panel.style.display = (panel.style.display === 'none' || panel.style.display === '') ? 'block' : 'none';
+        });
+        document.getElementById('closeInfo').addEventListener('click', function () {
+            document.getElementById('infoPanel').style.display = 'none';
+        });
+        window.addEventListener('click', function(event) {
+            let panel = document.getElementById('infoPanel');
+            let button = document.getElementById('infoBtn');
+            if (panel.style.display === 'block' && !panel.contains(event.target) && !button.contains(event.target)) {
+                panel.style.display = 'none';
+            }
+        });
+
+
         // Day/Night mode toggle
         const modeBtn = document.getElementById('modeBtn');
+	modeBtn.textContent = 'Night Mode';
         modeBtn.addEventListener('click', () => {
             if (document.body.classList.contains('night')) {
                 document.body.classList.remove('night');
