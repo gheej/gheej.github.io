@@ -5,16 +5,96 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body { margin: 0; font-family: Arial; }
-        #controls { position: absolute; top: 10px; left: 10px; z-index: 10; }
-        canvas { width: 100%; height: 100%; }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            transition: background 0.3s, color 0.3s;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+            backdrop-filter: blur(5px);
+        }
+        label {
+            display: block;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        input[type="text"], select {
+            padding: 5px;
+            width: 150px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            font-size: 12px;
+            transition: border-color 0.3s;
+        }
+        input[type="text"]:focus, select:focus {
+            outline: none;
+            border-color: #00ccff;
+        }
+        .error {
+            color: #ff4d4d;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+        input[type="range"] {
+            width: 150px;
+            margin-top: 5px;
+        }
+        button {
+            padding: 5px 10px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #00ccff;
+            color: #fff;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #0099cc;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+        .night {
+            background: linear-gradient(to bottom, #1a1a2e, #16213e);
+            color: #fff;
+        }
+        .day {
+            background: #fff;
+            color: #333;
+        }
     </style>
 </head>
-<body>
+<body class="night">
     <div id="controls">
-        <label>Vector u: <input type="text" id="uInput" value="0 0 1 0"></label><br>
-        <label>Vector v: <input type="text" id="vInput" value="0 0 0 1"></label><br>
+        <label>Preset Planes:
+            <select id="presetSelect">
+                <option value="custom">Custom</option>
+                <option value="0 0 1 0|0 0 0 1">zw-plane</option>
+                <option value="0 1 0 0|0 0 0 1">yw-plane</option>
+                <option value="1 0 0 0|0 0 0 1">xw-plane</option>
+                <option value="1 0 0 0|0 1 0 0">xy-plane</option>
+                <option value="1 0 0 1|0 1 0 1">A diagonal plane</option>
+            </select>
+        </label>
+        <label>Vector u: <input type="text" id="uInput" value="0 0 1 0"></label>
+        <div id="uInputError" class="error"></div>
+        <label>Vector v: <input type="text" id="vInput" value="0 0 0 1"></label>
+        <div id="vInputError" class="error"></div>
         <label>Angle: <input type="range" id="angleSlider" min="0" max="6.28" step="0.01" value="0"></label>
+        <button id="playBtn">Play</button>
+        <button id="pauseBtn">Pause</button>
+        <button id="randomBtn">Random</button>
+        <button id="modeBtn">Day Mode</button>
     </div>
     <script>
         // Scene setup
@@ -25,20 +105,20 @@
         document.body.appendChild(renderer.domElement);
         camera.position.z = 5;
 
-        // Add OrbitControls for mouse dragging
+        // OrbitControls
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true; // Smooth dragging
+        controls.enableDamping = true;
         controls.dampingFactor = 0.05;
         controls.rotateSpeed = 1.0;
 
-        // Tesseract vertices (16 combinations of ±1)
+        // Tesseract vertices
         const coords = [-1, 1];
         const vertices4d = [];
         for (let x of coords) for (let y of coords) for (let z of coords) for (let w of coords) {
             vertices4d.push([x, y, z, w]);
         }
 
-        // Edges (differ by one coordinate)
+        // Edges
         const edges = [];
         for (let i = 0; i < vertices4d.length; i++) {
             for (let j = i + 1; j < vertices4d.length; j++) {
@@ -54,6 +134,12 @@
         function scale(v, s) { return v.map(val => val * s); }
         function norm(v) { return Math.sqrt(dot(v, v)); }
         function normalize(v) { return scale(v, 1 / norm(v)); }
+        function areIndependent(u, v) {
+            const e1 = normalize(u); // Normalized u
+            const vProj = subtract(v, scale(e1, dot(v, e1))); // v - (v · e1) * e1
+            const residualNorm = norm(vProj); // Norm of the perpendicular component
+            return residualNorm > 1e-6; // If residual is near zero, v is parallel to u
+        }
 
         // Rotation matrix
         function rotation4dMatrix(angle, u, v) {
@@ -62,7 +148,7 @@
             const e2 = normalize(vProj);
             const cosA = Math.cos(angle), sinA = Math.sin(angle);
             const matrix = Array(4).fill().map(() => Array(4).fill(0));
-            for (let i = 0; i < 4; i++) matrix[i][i] = 1; // Identity base
+            for (let i = 0; i < 4; i++) matrix[i][i] = 1;
             for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
                 matrix[i][j] += (cosA - 1) * (e1[i] * e1[j] + e2[i] * e2[j]) + sinA * (e1[i] * e2[j] - e2[i] * e1[j]);
             }
@@ -83,25 +169,66 @@
 
         // Render tesseract
         let geometry = new THREE.BufferGeometry();
-        let lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xff0000 }));
+        let material = new THREE.LineBasicMaterial({ color: 0xf5cd79 }); // Night mode default
+        let lines = new THREE.LineSegments(geometry, material);
         scene.add(lines);
 
-        function updateTesseract() {
-            // Parse inputs with spaces instead of commas
-            const u = document.getElementById('uInput').value.trim().split(/\s+/).map(Number);
-            const v = document.getElementById('vInput').value.trim().split(/\s+/).map(Number);
-            const angle = parseFloat(document.getElementById('angleSlider').value);
+        // Validation function
+        function validateVector(input, id) {
+            const vec = input.trim().split(/\s+/).map(Number);
+            const errorDiv = document.getElementById(id + 'Error');
+            if (vec.length !== 4 || vec.some(isNaN)) {
+                document.getElementById(id).style.borderColor = '#ff4d4d';
+                errorDiv.textContent = 'Enter 4 numbers separated by spaces';
+                return null;
+            }
+            if (norm(vec) < 1e-6) {
+                document.getElementById(id).style.borderColor = '#ff4d4d';
+                errorDiv.textContent = 'Vector cannot be zero';
+                return null;
+            }
+            document.getElementById(id).style.borderColor = '#00ccff';
+            errorDiv.textContent = '';
+            return vec;
+        }
 
-            // Basic validation
-            if (u.length !== 4 || v.length !== 4 || u.some(isNaN) || v.some(isNaN)) {
-                console.error("Invalid input: u and v must be 4 numbers separated by spaces");
+        // Random vector generator
+        function generateRandomVector() {
+            return Array(4).fill().map(() => Math.random() * 4 - 2); // -2 to 2
+        }
+
+        function setRandomVectors() {
+            let u, v;
+            let attempts = 0;
+            const maxAttempts = 100;
+            do {
+                u = generateRandomVector();
+                v = generateRandomVector();
+                attempts++;
+            } while ((!norm(u) || !norm(v) || !areIndependent(u, v)) && attempts < maxAttempts);
+            if (attempts < maxAttempts) {
+                document.getElementById('uInput').value = u.map(n => n.toFixed(2)).join(' ');
+                document.getElementById('vInput').value = v.map(n => n.toFixed(2)).join(' ');
+                document.getElementById('presetSelect').value = 'custom';
+                updateTesseract();
+            } else {
+                console.error("Failed to generate independent vectors after max attempts");
+            }
+        }
+
+        function updateTesseract() {
+            const u = validateVector(document.getElementById('uInput').value, 'uInput');
+            const v = validateVector(document.getElementById('vInput').value, 'vInput');
+            if (!u || !v) return;
+            if (!areIndependent(u, v)) {
+                document.getElementById('uInputError').textContent = 'Vectors must be independent';
+                document.getElementById('uInput').style.borderColor = '#ff4d4d';
+                document.getElementById('vInput').style.borderColor = '#ff4d4d';
                 return;
             }
-
+            const angle = parseFloat(document.getElementById('angleSlider').value);
             const rotMatrix = rotation4dMatrix(angle, u, v);
-            const rotated4d = vertices4d.map(v => {
-                return rotMatrix.map(row => dot(row, v));
-            });
+            const rotated4d = vertices4d.map(v => rotMatrix.map(row => dot(row, v)));
             const vertices3d = project4dTo3d(rotated4d);
             const positions = [];
             for (let [i, j] of edges) {
@@ -110,15 +237,63 @@
             geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         }
 
-        // Event listeners
+        // Event listeners for inputs and slider
         document.getElementById('uInput').addEventListener('input', updateTesseract);
         document.getElementById('vInput').addEventListener('input', updateTesseract);
-        document.getElementById('angleSlider').addEventListener('input', updateTesseract);
+        document.getElementById('angleSlider').addEventListener('input', () => {
+            animating = false; // Stop animation when slider is manually adjusted
+            updateTesseract();
+        });
 
-        // Animation loop (no continuous rotation, just rendering and controls)
+        // Preset handler
+        document.getElementById('presetSelect').addEventListener('change', (e) => {
+            if (e.target.value === 'custom') return;
+            const [u, v] = e.target.value.split('|');
+            document.getElementById('uInput').value = u;
+            document.getElementById('vInput').value = v;
+            updateTesseract();
+        });
+
+        // Animation controls
+        let animating = false, speed = 0.02;
+        document.getElementById('playBtn').addEventListener('click', () => {
+            animating = true;
+        });
+        document.getElementById('pauseBtn').addEventListener('click', () => {
+            animating = false;
+        });
+
+        document.getElementById('randomBtn').addEventListener('click', setRandomVectors);
+
+        // Day/Night mode toggle
+        const modeBtn = document.getElementById('modeBtn');
+        modeBtn.addEventListener('click', () => {
+            if (document.body.classList.contains('night')) {
+                document.body.classList.remove('night');
+                document.body.classList.add('day');
+                material.color.setHex(0xea8685); // Day mode edge color
+                renderer.setClearColor(0xffffff, 1); // White background, fully opaque
+                modeBtn.textContent = 'Night Mode';
+            } else {
+                document.body.classList.remove('day');
+                document.body.classList.add('night');
+                material.color.setHex(0xf5cd79); // Night mode edge color
+                renderer.setClearColor(0x000000, 0); // Transparent to show CSS gradient
+                modeBtn.textContent = 'Day Mode';
+            }
+            renderer.render(scene, camera); // Update rendering with new color
+        });
+
+        // Animation loop
         function animate() {
             requestAnimationFrame(animate);
-            controls.update(); // Update OrbitControls
+            if (animating) {
+                let angle = parseFloat(document.getElementById('angleSlider').value) + speed;
+                if (angle > 6.28) angle = 0;
+                document.getElementById('angleSlider').value = angle;
+                updateTesseract();
+            }
+            controls.update();
             renderer.render(scene, camera);
         }
         updateTesseract();
